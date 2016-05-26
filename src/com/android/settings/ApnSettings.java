@@ -83,6 +83,7 @@ public class ApnSettings extends SettingsPreferenceFragment implements
     private static final int TYPES_INDEX = 3;
     private static final int MVNO_TYPE_INDEX = 4;
     private static final int MVNO_MATCH_DATA_INDEX = 5;
+    private static final int RO_INDEX = 6;
 
     private static final int MENU_NEW = Menu.FIRST;
     private static final int MENU_RESTORE = Menu.FIRST + 1;
@@ -155,6 +156,7 @@ public class ApnSettings extends SettingsPreferenceFragment implements
         final Activity activity = getActivity();
         final int subId = activity.getIntent().getIntExtra(SUB_ID,
                 SubscriptionManager.INVALID_SUBSCRIPTION_ID);
+        Log.d(TAG, "onCreate: subId = " + subId);
 
         mUm = (UserManager) getSystemService(Context.USER_SERVICE);
 
@@ -233,9 +235,10 @@ public class ApnSettings extends SettingsPreferenceFragment implements
     }
 
     private void fillList() {
+        boolean isSelectedKeyMatch = false;
         final TelephonyManager tm = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
         final String mccmnc = mSubscriptionInfo == null ? ""
-            : tm.getSimOperator(mSubscriptionInfo.getSubscriptionId());
+            : tm.getIccOperatorNumericForData(mSubscriptionInfo.getSubscriptionId());
         Log.d(TAG, "mccmnc = " + mccmnc);
         StringBuilder where = new StringBuilder("numeric=\"" + mccmnc +
                 "\" AND NOT (type='ia' AND (apn=\"\" OR apn IS NULL)) AND user_visible!=0");
@@ -245,7 +248,7 @@ public class ApnSettings extends SettingsPreferenceFragment implements
         }
 
         Cursor cursor = getContentResolver().query(Telephony.Carriers.CONTENT_URI, new String[] {
-                "_id", "name", "apn", "type", "mvno_type", "mvno_match_data"}, where.toString(),
+                "_id", "name", "apn", "type", "mvno_type", "mvno_match_data", "read_only"}, where.toString(),
                 null, Telephony.Carriers.DEFAULT_SORT_ORDER);
 
         if (cursor != null) {
@@ -271,9 +274,11 @@ public class ApnSettings extends SettingsPreferenceFragment implements
                 String type = cursor.getString(TYPES_INDEX);
                 String mvnoType = cursor.getString(MVNO_TYPE_INDEX);
                 String mvnoMatchData = cursor.getString(MVNO_MATCH_DATA_INDEX);
+                boolean readOnly = (cursor.getInt(RO_INDEX) == 1);
 
                 ApnPreference pref = new ApnPreference(getActivity());
 
+                pref.setApnReadOnly(readOnly);
                 pref.setKey(key);
                 pref.setTitle(name);
                 pref.setSummary(apn);
@@ -285,6 +290,8 @@ public class ApnSettings extends SettingsPreferenceFragment implements
                 if (selectable) {
                     if ((mSelectedKey != null) && mSelectedKey.equals(key)) {
                         pref.setChecked();
+                        isSelectedKeyMatch = true;
+                        Log.d(TAG, "find select key = " + mSelectedKey);
                     }
                     addApnToList(pref, mnoApnList, mvnoApnList, r, mvnoType, mvnoMatchData);
                 } else {
@@ -304,6 +311,15 @@ public class ApnSettings extends SettingsPreferenceFragment implements
             for (Preference preference : mnoApnList) {
                 apnList.addPreference(preference);
             }
+
+            //if find no selectedKey, set the first one as selected key
+            if (!isSelectedKeyMatch && apnList.getPreferenceCount() > 0) {
+                ApnPreference pref = (ApnPreference) apnList.getPreference(0);
+                pref.setChecked();
+                setSelectedApnKey(pref.getKey());
+                Log.d(TAG, "set key to  " +pref.getKey());
+            }
+
             for (Preference preference : mnoMmsApnList) {
                 apnList.addPreference(preference);
             }
@@ -393,13 +409,13 @@ public class ApnSettings extends SettingsPreferenceFragment implements
 
         ContentValues values = new ContentValues();
         values.put(APN_ID, mSelectedKey);
-        resolver.update(PREFERAPN_URI, values, null, null);
+        resolver.update(getUri(PREFERAPN_URI), values, null, null);
     }
 
     private String getSelectedApnKey() {
         String key = null;
 
-        Cursor cursor = getContentResolver().query(PREFERAPN_URI, new String[] {"_id"},
+        Cursor cursor = getContentResolver().query(getUri(PREFERAPN_URI), new String[] {"_id"},
                 null, null, Telephony.Carriers.DEFAULT_SORT_ORDER);
         if (cursor.getCount() > 0) {
             cursor.moveToFirst();
@@ -468,7 +484,7 @@ public class ApnSettings extends SettingsPreferenceFragment implements
             switch (msg.what) {
                 case EVENT_RESTORE_DEFAULTAPN_START:
                     ContentResolver resolver = getContentResolver();
-                    resolver.delete(DEFAULTAPN_URI, null, null);
+                    resolver.delete(getUri(DEFAULTAPN_URI), null, null);
                     mRestoreApnUiHandler
                         .sendEmptyMessage(EVENT_RESTORE_DEFAULTAPN_COMPLETE);
                     break;
@@ -485,5 +501,14 @@ public class ApnSettings extends SettingsPreferenceFragment implements
             return dialog;
         }
         return null;
+    }
+
+    private Uri getUri(Uri uri) {
+        int subId = SubscriptionManager.getDefaultDataSubId();
+        if (mSubscriptionInfo != null && SubscriptionManager.isValidSubscriptionId(
+                mSubscriptionInfo.getSubscriptionId())) {
+            subId = mSubscriptionInfo.getSubscriptionId();
+        }
+        return Uri.withAppendedPath(uri, "/subId/" + subId);
     }
 }
