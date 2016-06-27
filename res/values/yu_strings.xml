@@ -24,6 +24,9 @@
     <string name="build_date">Build date</string>  
     <string name="build_date_default">Unknown</string>
 
+    <!-- General Strings --> 
+    <string name="settings_reset_button">Reset</string>
+
    <!-- Hardware Keys -->
     <string name="button_pref_title">Buttons</string>
     <string name="hardware_keys_home_key_title">Home button</string>
